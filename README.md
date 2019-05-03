@@ -1,2 +1,2 @@
 # Credits-Roulette
-Roulette using SourceMod Store credits
+Roulette using SourceMod Store credits. 
