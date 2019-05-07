@@ -11,10 +11,10 @@
 #define XG_PREFIX_CHAT_WARN " \x07[\x0Bx\x08G\x07]\x01 "
 #define XG_PREFIX_CHAT_DONOR " \x10[\x0Bx\x08G\x10]\x01 "
 #define PROFIT_PERCENT  0.05 //Goal for profits -  if you play the game 100 times, betting 100 credits, you will on average make 5 credits
-#define HOUSE_WEIGHT  5
-#define GREEN_WEIGHT  3
-#define RED_BLACK_WEIGHT  46
-#define TOTAL (HOUSE_WEIGHT + GREEN_WEIGHT + 2*RED_BLACK_WEIGHT)
+#define HOUSE_WEIGHT  5.0
+#define GREEN_WEIGHT  3.0
+#define RED_BLACK_WEIGHT  46.0
+const float TOTAL = 100.0; //(HOUSE_WEIGHT + GREEN_WEIGHT + 2 * RED_BLACK_WEIGHT);
 
 ReplySource g_CommandSource[MAXPLAYERS]; //Source of command - was !roulette used from chat or console?
 bool g_Bet[MAXPLAYERS]; //Stores whether client already bet during round or not
@@ -76,11 +76,11 @@ public Action Command_Roulette(int client, int args)
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "A correct bet on red or black will double your credits; green will give you 14x!");
 		return Plugin_Handled;
 	}
-	//else if (g_Bet[client]) UNCOMMENT THIS 
-	//{
-	//	ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
-	//	return Plugin_Handled;
-	//}
+	else if (g_Bet[client]) UNCOMMENT THIS 
+	{
+		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
+		return Plugin_Handled;
+	}
 	else if (g_CommandSource[client] == SM_REPLY_TO_CHAT)
 	{
 	DataPack data = new DataPack();
@@ -89,7 +89,7 @@ public Action Command_Roulette(int client, int args)
 	data.WriteString(buf2);
 	data.Reset();
 	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackChat, data);
-	//g_Bet[client] = true;
+	g_Bet[client] = true;
 	return Plugin_Handled;
 	}
 	else if (g_CommandSource[client] == SM_REPLY_TO_CONSOLE)
@@ -100,15 +100,11 @@ public Action Command_Roulette(int client, int args)
 	data.WriteString(buf2);
 	data.Reset();
 	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackConsole, data);
-	//g_Bet[client] = true;
+	g_Bet[client] = true;
 	return Plugin_Handled;
 	}
 	
-	
-	
-	
-	
-	
+	return Plugin_Handled;
 }
 
 
@@ -128,7 +124,7 @@ char Get_Roulette_Color()
 	{ 
 		color = "green";
 	}
-	else if (roulette_number > 8 && roulette_number <= 54)
+	else if (roulette_number > 8 && roulette_number <= 54)// the rest
 	{
 		color = "black";
 	}
@@ -143,17 +139,16 @@ char Get_Roulette_Color()
 // Calculates winnings on correct guess
 int Calculate_Winnings(int bet, char color[6])
 {
-	int testbet = 1;
-	float green_multiplier = (testbet + PROFIT_PERCENT) / (GREEN_WEIGHT / TOTAL);
-	float red_black_multiplier = (testbet + PROFIT_PERCENT); // (RED_BLACK_WEIGHT / TOTAL);
+	float green_multiplier = (1 + PROFIT_PERCENT) / (GREEN_WEIGHT / TOTAL);
+	float red_black_multiplier = (1 + PROFIT_PERCENT) / (RED_BLACK_WEIGHT / TOTAL);
 	float winnings;
 	if(StrEqual(color, "green", false))
 	{
-		winnings = green_multiplier * testbet;
+		winnings = green_multiplier * bet;
 	}
 	else if (StrEqual(color, "red", false) || StrEqual(color, "black", false))
 	{
-		winnings = red_black_multiplier; //* testbet;
+		winnings = red_black_multiplier * bet;
 	}
 	
 	return RoundFloat(winnings);
@@ -303,14 +298,16 @@ int AccountIDToIndex(int accountid) //Steam32 ID to servier client index
 
 int abs(int num)//Returns absolute value of a number
 {
+	int ret;
 	if(num >= 0)
 	{
-		return num;
+		ret = num;
 	}
 	else if(num < 0)
 	{
-		return num * -1;
+		ret = num * -1;
 	}
+	return ret;
 }
 
 
