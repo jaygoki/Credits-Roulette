@@ -14,10 +14,9 @@
 #define HOUSE_WEIGHT  5.0
 #define GREEN_WEIGHT  3.0
 #define RED_BLACK_WEIGHT  46.0
-const float TOTAL = 100.0; //(HOUSE_WEIGHT + GREEN_WEIGHT + 2 * RED_BLACK_WEIGHT);
 
-ReplySource g_CommandSource[MAXPLAYERS]; //Source of command - was !roulette used from chat or console?
-bool g_Bet[MAXPLAYERS]; //Stores whether client already bet during round or not
+ReplySource g_CommandSource[MAXPLAYERS+1]; //Source of command - was !roulette used from chat or console?
+bool HasBet[MAXPLAYERS+1]; //Stores whether client already bet during round or not
 
 
 
@@ -34,18 +33,18 @@ public void OnPluginStart()
 {
 	RegConsoleCmd("sm_roulette", Command_Roulette);
 	HookEvent("round_end", Event_RoundEnd);
-	for (int i = 1; i < MAXPLAYERS; i++) // Defaults whether bet or not to false for all players
-    { 
-    	g_Bet[i] = false;
-    }
+	for (int i = 0; i < MaxClients; i++) // Defaults whether bet or not to false for all players
+    	{ 
+    		HasBet[i] = false;
+    	}
 }
 
 // On round end - resets all players' bet status
 public Action Event_RoundEnd(Event hEvent, const char[] sName, bool bDontBroadcast) 
 {
-    for (int i = 1; i < MAXPLAYERS; i++) 
+    for (int i = 0; i < MaxClients; i++)
     {
-    	g_Bet[i] = false;
+    	HasBet[i] = false;
     }
 }
 
@@ -53,55 +52,52 @@ public Action Event_RoundEnd(Event hEvent, const char[] sName, bool bDontBroadca
 public Action Command_Roulette(int client, int args)
 {
 	g_CommandSource[client] = GetCmdReplySource();
-	char buf1[16]; //Player bet
-	char buf2[6]; // Color player bets on
+	char player_bet[16]; //Player bet
+	char bet_color[6]; // Color player bets on
 	bool valid_color = false;
 	
-	GetCmdArg(1, buf1, sizeof(buf1));
-	GetCmdArg(2, buf2, sizeof(buf2));
+	GetCmdArg(1, player_bet, sizeof(player_bet));
+	GetCmdArg(2, bet_color, sizeof(bet_color));
 	
 	// Checks if the color the player provided is valid
-	if(StrEqual(buf2, "red", false) || StrEqual(buf2, "green", false) || StrEqual(buf2, "black", false))
+	if(StrEqual(bet_color, "red", false) || StrEqual(bet_color, "green", false) || StrEqual(bet_color, "black", false))
 	{
 		valid_color = true;
 	}
 	
 	// Tests if client used sm_roulette correctly
-	if (args != 2 || StringToInt(buf1) == 0 || !valid_color) 
+	if (args != 2 || StringToInt(player_bet) == 0 || !valid_color) 
 	{
 		// Resulting message
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ...  "Usage: sm_roulette <bet> <color>"); 
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Bet is the amount of credits you would like to bet"); 
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Color is the color you would like to bet on; either red, black, or green.");
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "A correct bet on red or black will double your credits; green will give you 14x!");
+		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "A correct bet on red or black will double your credits, and then some; green will give you several times your bet!");
 		return Plugin_Handled;
 	}
-	else if (g_Bet[client]) UNCOMMENT THIS 
+	
+	// Tests if client already bet during round
+	if (HasBet[client]) 
 	{
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
 		return Plugin_Handled;
 	}
-	else if (g_CommandSource[client] == SM_REPLY_TO_CHAT)
-	{
+	
 	DataPack data = new DataPack();
 	data.WriteCell(client);
-	data.WriteCell(StringToInt(buf1));
-	data.WriteString(buf2);
+	data.WriteCell(StringToInt(player_bet));
+	data.WriteString(bet_color);
 	data.Reset();
-	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackChat, data);
-	g_Bet[client] = true;
-	return Plugin_Handled;
+	HasBet[client] = true;
+	if (g_CommandSource[client] == SM_REPLY_TO_CHAT)
+	{
+		Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackChat, data);
+		return Plugin_Handled;
 	}
 	else if (g_CommandSource[client] == SM_REPLY_TO_CONSOLE)
 	{
-	DataPack data = new DataPack();
-	data.WriteCell(client);
-	data.WriteCell(StringToInt(buf1));
-	data.WriteString(buf2);
-	data.Reset();
-	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackConsole, data);
-	g_Bet[client] = true;
-	return Plugin_Handled;
+		Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackConsole, data);
+		return Plugin_Handled;
 	}
 	
 	return Plugin_Handled;
@@ -116,19 +112,20 @@ char Get_Roulette_Color()
 	char color[6];
 	
 	// 5% chance house wins, 3% chance for green, 46% for either red or black
-	if(roulette_number <= 5) // 1 2 3 4 5
+	if(roulette_number <= HOUSE_WEIGHT) // 1 2 3 4 5
 	{
 		color = "house";
 	}
-	else if (roulette_number > 5 && roulette_number <= 8) // 6 7 8
+	else if (roulette_number > HOUSE_WEIGHT && roulette_number <= HOUSE_WEIGHT+GREEN_WEIGHT) // 6 7 8
 	{ 
 		color = "green";
 	}
-	else if (roulette_number > 8 && roulette_number <= 54)// the rest
+	else if (roulette_number > HOUSE_WEIGHT+GREEN_WEIGHT 
+			&& roulette_number <= HOUSE_WEIGHT+GREEN_WEIGHT+RED_BLACK_WEIGHT)// the rest
 	{
 		color = "black";
 	}
-	else if (roulette_number > 54)
+	else if (roulette_number > HOUSE_WEIGHT+GREEN_WEIGHT+RED_BLACK_WEIGHT)
 	{
 		color = "red";
 	}
@@ -139,8 +136,8 @@ char Get_Roulette_Color()
 // Calculates winnings on correct guess
 int Calculate_Winnings(int bet, char color[6])
 {
-	float green_multiplier = (1 + PROFIT_PERCENT) / (GREEN_WEIGHT / TOTAL);
-	float red_black_multiplier = (1 + PROFIT_PERCENT) / (RED_BLACK_WEIGHT / TOTAL);
+	float green_multiplier = (1 + PROFIT_PERCENT) / (GREEN_WEIGHT / getTotalWeight());
+	float red_black_multiplier = (1 + PROFIT_PERCENT) / (RED_BLACK_WEIGHT / getTotalWeight());
 	float winnings;
 	if(StrEqual(color, "green", false))
 	{
@@ -166,9 +163,9 @@ public void GetCreditsCallbackChat(int credits, DataPack data)
 	{
 		PrintToChat(client, XG_PREFIX_CHAT_WARN ... "You do not have enough credits!");
 	}
-	else if (player_bet < 0)
+	else if (player_bet <= 0)
 	{
-		PrintToChat(client, XG_PREFIX_CHAT_WARN ... "You cannot bet negative credits!");		
+		PrintToChat(client, XG_PREFIX_CHAT_WARN ... "You must bet a positive amount of credits!");		
 	}
 	else 
 	{
@@ -188,9 +185,9 @@ public void GetCreditsCallbackConsole(int credits, DataPack data)
 	{
 		PrintToConsole(client, XG_PREFIX_CHAT_WARN ... "You do not have enough credits!");
 	}
-	else if (player_bet < 0)
+	else if (player_bet <= 0)
 	{
-		PrintToConsole(client, XG_PREFIX_CHAT_WARN ... "You cannot bet negative credits!");		
+		PrintToConsole(client, XG_PREFIX_CHAT_WARN ... "You must bet a positive amount of credits!");		
 	}
 	else 
 	{
@@ -296,18 +293,21 @@ int AccountIDToIndex(int accountid) //Steam32 ID to servier client index
     return -1;
 }
 
+float getTotalWeight()
+{
+	return (HOUSE_WEIGHT + GREEN_WEIGHT + RED_BLACK_WEIGHT * 2);
+}
 int abs(int num)//Returns absolute value of a number
 {
-	int ret;
+	
 	if(num >= 0)
 	{
-		ret = num;
+		return num;
 	}
-	else if(num < 0)
+	else
 	{
-		ret = num * -1;
+		return num * -1;
 	}
-	return ret;
 }
 
 
