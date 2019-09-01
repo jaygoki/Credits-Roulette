@@ -10,13 +10,14 @@
 #define XG_PREFIX_CHAT_ALERT " \x04[\x0Bx\x08G\x04]\x01 "
 #define XG_PREFIX_CHAT_WARN " \x07[\x0Bx\x08G\x07]\x01 "
 #define XG_PREFIX_CHAT_DONOR " \x10[\x0Bx\x08G\x10]\x01 "
-#define PROFIT_PERCENT  0.05 //Goal for profits -  if you play the game 100 times, betting 100 credits, you will on average make 5 credits
+//#define PROFIT_PERCENT  0.05 //Goal for profits -  if you play the game 100 times, betting 100 credits, you will on average make 5 credits
 #define HOUSE_WEIGHT  5.0
 #define GREEN_WEIGHT  3.0
 #define RED_BLACK_WEIGHT  46.0
 
-ReplySource g_CommandSource[MAXPLAYERS+1]; //Source of command - was !roulette used from chat or console?
+//ReplySource g_CommandSource[MAXPLAYERS+1]; //Source of command - was !roulette used from chat or console?
 bool HasBet[MAXPLAYERS+1]; //Stores whether client already bet during round or not
+ConVar g_cvar_Profit_Percent;
 
 
 
@@ -33,6 +34,7 @@ public void OnPluginStart()
 {
 	RegConsoleCmd("sm_roulette", Command_Roulette);
 	RegConsoleCmd("sm_rou", Command_Roulette);
+	g_cvar_Profit_Percent = CreateConVar("sm_profit_percent", "0.05", "Goal percentage of profit for players");
 	HookEvent("round_end", Event_RoundEnd);
 	for (int i = 0; i < MaxClients; i++) 
     	{ 
@@ -52,7 +54,7 @@ public Action Event_RoundEnd(Event hEvent, const char[] sName, bool bDontBroadca
 // Called when sm_roulette is used
 public Action Command_Roulette(int client, int args)
 {
-	g_CommandSource[client] = GetCmdReplySource();
+	ReplySource CommandSource = GetCmdReplySource();
 	char player_bet[16]; //Player bet
 	char bet_color[6]; // Color player bets on
 	bool valid_color = false;
@@ -91,22 +93,25 @@ public Action Command_Roulette(int client, int args)
 		return Plugin_Handled;
 	}
 	
+	bool isChat;//Checks if command originated from chat or console in order to print response in correct place
+	if (CommandSource == SM_REPLY_TO_CHAT)
+	{
+		isChat = true;
+	}
+	else if (CommandSource == SM_REPLY_TO_CONSOLE)
+	{
+		isChat = false;
+	}
+	
+	
 	DataPack data = new DataPack();
 	data.WriteCell(client);
 	data.WriteCell(StringToInt(player_bet));
+	data.WriteCell(isChat);
 	data.WriteString(bet_color);
 	data.Reset();
 	HasBet[client] = true;
-	if (g_CommandSource[client] == SM_REPLY_TO_CHAT)
-	{
-		Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackChat, data);
-		return Plugin_Handled;
-	}
-	else if (g_CommandSource[client] == SM_REPLY_TO_CONSOLE)
-	{
-		Store_GetCredits(GetSteamAccountID(client), GetCreditsCallbackConsole, data);
-		return Plugin_Handled;
-	}
+	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallback, data);
 	
 	return Plugin_Handled;
 }
@@ -144,58 +149,48 @@ char Get_Roulette_Color()
 // Calculates winnings on correct guess
 int Calculate_Winnings(int bet, char color[6])
 {
-	float green_multiplier = (1 + PROFIT_PERCENT) / (GREEN_WEIGHT / getTotalWeight()); //math to calculate winnings based on PROFIT_PERCENT
-	float red_black_multiplier = (1 + PROFIT_PERCENT) / (RED_BLACK_WEIGHT / getTotalWeight());
+	float green_multiplier = (1 + g_cvar_Profit_Percent.FloatValue) / (GREEN_WEIGHT / getTotalWeight()); //math to calculate winnings based on PROFIT_PERCENT
+	float red_black_multiplier = (1 + g_cvar_Profit_Percent.FloatValue) / (RED_BLACK_WEIGHT / getTotalWeight());
 	float winnings;
 	if(StrEqual(color, "green", false))
 	{
-		winnings = green_multiplier * bet;
+		winnings = (green_multiplier - 1) * bet;
 	}
 	else if (StrEqual(color, "red", false) || StrEqual(color, "black", false))
 	{
-		winnings = red_black_multiplier * bet;
+		winnings = (red_black_multiplier - 1) * bet;
 	}
 	
 	return RoundFloat(winnings);
 }
 
-public void GetCreditsCallbackChat(int credits, DataPack data)
+public void GetCreditsCallback(int credits, DataPack data)
 {
 	int client = data.ReadCell();
 	int player_bet = data.ReadCell();
+	bool isChat = data.ReadCell();
 	char player_color[6]; 
 	data.ReadString(player_color, sizeof(player_color));
 	delete data; 
 	
 	if(credits < player_bet)
 	{
+		if(isChat)
+		{
 		PrintToChat(client, XG_PREFIX_CHAT_WARN ... "You do not have enough credits!");
+		}
+		else
+		{
+		PrintToConsole(client, XG_PREFIX_CHAT_WARN..."You do not have enough credits!");
+		}		
 	}
 	else 
 	{
-		Check_WinChat(player_color, player_bet, client);
+		Check_Win(player_color, player_bet, client, isChat);
 	}
 }
 
-public void GetCreditsCallbackConsole(int credits, DataPack data)
-{
-	int client = data.ReadCell();
-	int player_bet = data.ReadCell();
-	char player_color[6]; 
-	data.ReadString(player_color, sizeof(player_color));
-	delete data; 
-	
-	if(credits < player_bet)
-	{
-		PrintToConsole(client, XG_PREFIX_CHAT_WARN ... "You do not have enough credits!");
-	}
-	else 
-	{
-		Check_WinConsole(player_color, player_bet, client);
-	}
-}
-
-public void Check_WinChat(char color[6], int bet, int client)
+public void Check_Win(char color[6], int bet, int client, bool isChat)
 {
 	char house_color[6]; // Color player is betting against
 	house_color = Get_Roulette_Color();
@@ -203,80 +198,72 @@ public void Check_WinChat(char color[6], int bet, int client)
 	if (StrEqual(house_color, color)) // Correct bet
 	{
 		int winnings = Calculate_Winnings(bet, house_color);
+		if(isChat)
+		{
 		PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "Color was %s! Congratulations!", house_color);
-		Store_GiveCredits(GetSteamAccountID(client), winnings, GiveCreditsCallbackChat);
+		}
+		else
+		{
+		PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Congratulations!", house_color);
+		}
+		Store_GiveCredits(GetSteamAccountID(client), winnings, GiveCreditsCallback, isChat);
 	}
 	else if (!StrEqual(house_color, color)) // Incorrect bet
 	{
 		if(StrEqual(house_color, "house"))
 		{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "House wins! Better luck next time!");
-			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallbackChat);	
+			if(isChat)
+			{
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "House wins! Better luck next time.", house_color);
+			}
+			else
+			{
+			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Congratulations!", house_color);
+			}
+			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);	
 		}
 		else
 		{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "Color was %s! Better luck next time!", house_color);
-			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallbackChat);
+			if(isChat)
+			{
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "Color was %s! Better luck next time.", house_color);
+			}
+			else
+			{
+			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Better luck next time.", house_color);
+			}
+			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);
 		}
 	}
 	
 }
 
-public void Check_WinConsole(char color[6], int bet, int client)
-{
-	char house_color[6]; // Color player is betting against
-	house_color = Get_Roulette_Color();
-	
-	if (StrEqual(house_color, color)) // Correct bet
-	{
-		int winnings = Calculate_Winnings(bet, house_color);
-		PrintToConsole(client, XG_PREFIX_CHAT_ALERT ... "Color was %s! Congratulations!", house_color);
-		Store_GiveCredits(GetSteamAccountID(client), winnings, GiveCreditsCallbackConsole);
-	}
-	else if (!StrEqual(house_color, color)) // Incorrect bet
-	{
-		if(StrEqual(house_color, "house"))
-		{
-			PrintToConsole(client, XG_PREFIX_CHAT_ALERT ... "House wins! Better luck next time!");
-			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallbackConsole);	
-		}
-		else
-		{
-			PrintToConsole(client, XG_PREFIX_CHAT_ALERT ... "Color was %s! Better luck next time!", house_color);
-			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallbackConsole);
-		}	
-	}
-	
-}
-
-public void GiveCreditsCallbackChat(int accountid, int buf, any data) //buf will be either the amount of credits that client wins or the amount they lose, depending if they win
+public void GiveCreditsCallback(int accountid, int buf, bool isChat) //buf will be either the amount of credits that client wins or the amount they lose, depending if they win
 {
 	int client = AccountIDToIndex(accountid);
 	if(client != -1)
 	{
 		if(buf > 0)
 		{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT..."You have just recieved %i Credits!", buf);
-		}
-		else if (buf < 0)
-		{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT..."You lost %i Credits!", (buf * -1));
-		}
-	}
-}
-
-public void GiveCreditsCallbackConsole(int accountid, int buf, any data) 
-{
-	int client = AccountIDToIndex(accountid);
-	if(client != -1)
-	{
-		if(buf > 0)
-		{
+			if(isChat)
+			{
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "You have just recieved %i Credits!", buf);
+			}
+			else
+			{
 			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."You have just recieved %i Credits!", buf);
+			}
 		}
 		else if (buf < 0)
 		{
+			if(isChat)
+			{
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "You lost %i Credits!", (buf * -1));
+			}
+			else
+			{
 			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."You lost %i Credits!", (buf * -1));
+			}
 		}
 	}
 }
