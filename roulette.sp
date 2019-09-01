@@ -32,10 +32,11 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
 	RegConsoleCmd("sm_roulette", Command_Roulette);
+	RegConsoleCmd("sm_rou", Command_Roulette);
 	HookEvent("round_end", Event_RoundEnd);
-	for (int i = 0; i < MaxClients; i++) // Defaults whether bet or not to false for all players
+	for (int i = 0; i < MaxClients; i++) 
     	{ 
-    		HasBet[i] = false;
+    		HasBet[i] = false; // Defaults whether bet or not in a round to false for all players
     	}
 }
 
@@ -69,7 +70,7 @@ public Action Command_Roulette(int client, int args)
 	if (args != 2 || StringToInt(player_bet) == 0 || !valid_color) 
 	{
 		// Resulting message
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ...  "Usage: sm_roulette <bet> <color>"); 
+		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ...  "Usage: sm_roulette <bet> <color> (sm_rou may also be used)"); 
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Bet is the amount of credits you would like to bet"); 
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Color is the color you would like to bet on; either red, black, or green.");
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "A correct bet on red or black will double your credits, and then some; green will give you several times your bet!");
@@ -80,6 +81,13 @@ public Action Command_Roulette(int client, int args)
 	if (HasBet[client]) 
 	{
 		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
+		return Plugin_Handled;
+	}
+	
+	// Makes sure client bets a positive amount of credits
+	if(StringToInt(player_bet) < 0)
+	{
+		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You must bet a positive amount of credits!");
 		return Plugin_Handled;
 	}
 	
@@ -136,7 +144,7 @@ char Get_Roulette_Color()
 // Calculates winnings on correct guess
 int Calculate_Winnings(int bet, char color[6])
 {
-	float green_multiplier = (1 + PROFIT_PERCENT) / (GREEN_WEIGHT / getTotalWeight());
+	float green_multiplier = (1 + PROFIT_PERCENT) / (GREEN_WEIGHT / getTotalWeight()); //math to calculate winnings based on PROFIT_PERCENT
 	float red_black_multiplier = (1 + PROFIT_PERCENT) / (RED_BLACK_WEIGHT / getTotalWeight());
 	float winnings;
 	if(StrEqual(color, "green", false))
@@ -163,10 +171,6 @@ public void GetCreditsCallbackChat(int credits, DataPack data)
 	{
 		PrintToChat(client, XG_PREFIX_CHAT_WARN ... "You do not have enough credits!");
 	}
-	else if (player_bet <= 0)
-	{
-		PrintToChat(client, XG_PREFIX_CHAT_WARN ... "You must bet a positive amount of credits!");		
-	}
 	else 
 	{
 		Check_WinChat(player_color, player_bet, client);
@@ -184,10 +188,6 @@ public void GetCreditsCallbackConsole(int credits, DataPack data)
 	if(credits < player_bet)
 	{
 		PrintToConsole(client, XG_PREFIX_CHAT_WARN ... "You do not have enough credits!");
-	}
-	else if (player_bet <= 0)
-	{
-		PrintToConsole(client, XG_PREFIX_CHAT_WARN ... "You must bet a positive amount of credits!");		
 	}
 	else 
 	{
@@ -260,7 +260,7 @@ public void GiveCreditsCallbackChat(int accountid, int buf, any data) //buf will
 		}
 		else if (buf < 0)
 		{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT..."You lost %i Credits!", abs(buf));
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT..."You lost %i Credits!", (buf * -1));
 		}
 	}
 }
@@ -276,7 +276,7 @@ public void GiveCreditsCallbackConsole(int accountid, int buf, any data)
 		}
 		else if (buf < 0)
 		{
-			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."You lost %i Credits!", abs(buf));
+			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."You lost %i Credits!", (buf * -1));
 		}
 	}
 }
@@ -297,17 +297,3 @@ float getTotalWeight()
 {
 	return (HOUSE_WEIGHT + GREEN_WEIGHT + RED_BLACK_WEIGHT * 2);
 }
-int abs(int num)//Returns absolute value of a number
-{
-	
-	if(num >= 0)
-	{
-		return num;
-	}
-	else
-	{
-		return num * -1;
-	}
-}
-
-
