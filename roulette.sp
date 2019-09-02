@@ -80,11 +80,11 @@ public Action Command_Roulette(int client, int args)
 	}
 	
 	// Tests if client already bet during round
-	if (HasBet[client]) 
-	{
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
-		return Plugin_Handled;
-	}
+	//if (HasBet[client]) 
+	//{
+	//	ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
+	//	return Plugin_Handled;
+	//}
 	
 	// Makes sure client bets a positive amount of credits
 	if(StringToInt(player_bet) < 0)
@@ -93,16 +93,11 @@ public Action Command_Roulette(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	bool isChat;//Checks if command originated from chat or console in order to print response in correct place
+	bool isChat = false;//Checks if command originated from chat or console in order to print response in correct place
 	if (CommandSource == SM_REPLY_TO_CHAT)
 	{
 		isChat = true;
 	}
-	else if (CommandSource == SM_REPLY_TO_CONSOLE)
-	{
-		isChat = false;
-	}
-	
 	
 	DataPack data = new DataPack();
 	data.WriteCell(client);
@@ -110,7 +105,6 @@ public Action Command_Roulette(int client, int args)
 	data.WriteCell(isChat);
 	data.WriteString(bet_color);
 	data.Reset();
-	HasBet[client] = true;
 	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallback, data);
 	
 	return Plugin_Handled;
@@ -206,7 +200,14 @@ public void Check_Win(char color[6], int bet, int client, bool isChat)
 		{
 		PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Congratulations!", house_color);
 		}
+		if(StrEqual(house_color, "green"))
+		{
+			char clientName[32];
+			GetClientName(client, clientName, 32);
+			PrintToChatAll(XG_PREFIX_CHAT_ALERT..."\x0B%s \x01has just won \x0B%i \x01credits betting on \x06green!", clientName, winnings);
+		}
 		Store_GiveCredits(GetSteamAccountID(client), winnings, GiveCreditsCallback, isChat);
+		HasBet[client] = true;
 	}
 	else if (!StrEqual(house_color, color)) // Incorrect bet
 	{
@@ -214,13 +215,14 @@ public void Check_Win(char color[6], int bet, int client, bool isChat)
 		{
 			if(isChat)
 			{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "House wins! Better luck next time.", house_color);
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "House wins! Better luck next time.");
 			}
 			else
 			{
-			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Congratulations!", house_color);
+			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."House wins! Better luck next time.");
 			}
-			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);	
+			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);
+			HasBet[client] = true;			
 		}
 		else
 		{
@@ -233,6 +235,7 @@ public void Check_Win(char color[6], int bet, int client, bool isChat)
 			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Better luck next time.", house_color);
 			}
 			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);
+			HasBet[client] = true;
 		}
 	}
 	
@@ -247,7 +250,7 @@ public void GiveCreditsCallback(int accountid, int buf, bool isChat) //buf will 
 		{
 			if(isChat)
 			{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "You have just recieved %i Credits!", buf);
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "You have just recieved \x06%i \x01Credits!", buf);
 			}
 			else
 			{
@@ -258,7 +261,7 @@ public void GiveCreditsCallback(int accountid, int buf, bool isChat) //buf will 
 		{
 			if(isChat)
 			{
-			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "You lost %i Credits!", (buf * -1));
+			PrintToChat(client, XG_PREFIX_CHAT_ALERT ... "You lost \x0F%i \x01Credits!", (buf * -1));
 			}
 			else
 			{
