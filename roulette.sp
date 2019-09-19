@@ -14,8 +14,12 @@
 #define GREEN_WEIGHT  3.0
 #define RED_BLACK_WEIGHT  46.0
 
-bool HasBet[MAXPLAYERS+1]; // Stores whether client already bet during round or not
-ConVar g_cvar_Profit_Percent; // Goal percent for player profit: at 5%, betting 100 credits 100 times will make 5 credits on average
+bool CanBet[MAXPLAYERS+1]; // Stores whether the client can bet right now
+bool CurrentlyBetting[MAXPLAYERS + 1]; // Is client betting right now? - used to prevent an exploit
+float GameTimeCanBet[MAXPLAYERS + 1]; // Stores the game time that the player will be allowed to bet again - used to tell the client how much longer they have until they can bet again
+ConVar cvar_Profit_Percent; // Goal percent for player profit: at 5%, betting 100 credits 100 times will make 5 credits on average
+ConVar cvar_Bet_Interval;
+Handle BetTimer; //Timer to create time between bets
 
 public Plugin myinfo = 
 {
@@ -30,11 +34,13 @@ public void OnPluginStart()
 {
 	RegConsoleCmd("sm_roulette", Command_Roulette);
 	RegConsoleCmd("sm_rou", Command_Roulette);
-	g_cvar_Profit_Percent = CreateConVar("sm_profit_percent", "0.05", "Goal percentage of profit for players"); // Defaults profit percent to 5%
+	cvar_Profit_Percent = CreateConVar("sm_profit_percent", "0.05", "Goal percentage of profit for players"); // Defaults profit percent to 5%
+	cvar_Bet_Interval = CreateConVar("sm_bet_interval", "150.0", "Time needed between bets"); // Defaults time btwn bets to 2.5 minutes
 	HookEvent("round_end", Event_RoundEnd);
 	for (int i = 0; i < MaxClients; i++) 
     	{ 
-    		HasBet[i] = false; // Defaults whether bet or not in a round to false for all players
+    		CanBet[i] = true; // Defaults betting eligibility to true
+    		CurrentlyBetting[i] = false; 
     	}
 }
 
@@ -42,7 +48,7 @@ public Action Event_RoundEnd(Event hEvent, const char[] sName, bool bDontBroadca
 {
     for (int i = 0; i < MaxClients; i++)
     {
-    	HasBet[i] = false;
+    	CanBet[i] = true;
     }
 }
 
@@ -56,53 +62,57 @@ public Action Command_Roulette(int client, int args)// Called when sm_roulette i
 	GetCmdArg(1, player_bet, sizeof(player_bet));
 	GetCmdArg(2, bet_color, sizeof(bet_color));
 	
-	if(StrEqual(bet_color, "red", false) || StrEqual(bet_color, "green", false) || StrEqual(bet_color, "black", false))// Checks if the color the player provided is valid
+	if(!CurrentlyBetting[client]) //Only works if client is not currently betting
 	{
-		valid_color = true;
+		if(StrEqual(bet_color, "red", false) || StrEqual(bet_color, "green", false) || StrEqual(bet_color, "black", false))// Checks if the color the player provided is valid
+		{
+			valid_color = true;
+		}
+	
+		if (!CanBet[client]) // Tests if client already bet during round
+		{
+			int TimeLeft = RoundFloat(GameTimeCanBet[client] - GetGameTime());
+			ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You must wait %i seconds to bet again!", TimeLeft);
+			return Plugin_Handled;
+		}
+		
+		if (args != 2 || StringToInt(player_bet) == 0 || !valid_color)// Tests if client used sm_roulette correctly 
+		{
+			// Resulting message
+			ReplyToCommand(client, XG_PREFIX_CHAT_WARN ...  "Usage: sm_roulette <bet> <color> (sm_rou may also be used)"); 
+			ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Bet is the amount of credits you would like to bet"); 
+			ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Color is the color you would like to bet on; either red, black, or green.");
+			ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "A correct bet on red or black will give you back your credits and then some; green will give you several times your bet!");
+			return Plugin_Handled;
+		}
+		
+		if(StringToInt(player_bet) < 0)// Makes sure client bets a positive amount of credits
+		{
+			ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You must bet a positive amount of credits!");
+			return Plugin_Handled;
+		}
+		
+		bool isChat = false;//Checks if command originated from chat or console in order to print response in correct place
+		if (CommandSource == SM_REPLY_TO_CHAT)//Response will be printed in console as well in most cases  
+		{									 //so client doesn't have to scroll up in chat
+			isChat = true;
+		}
+		
+		DataPack data = new DataPack();
+		data.WriteCell(client);
+		data.WriteCell(StringToInt(player_bet));
+		data.WriteCell(isChat);
+		data.WriteString(bet_color);
+		data.Reset();
+		Store_GetCredits(GetSteamAccountID(client), GetCreditsCallback, data);
+		CurrentlyBetting[client] = true;
 	}
-	
-	if (args != 2 || StringToInt(player_bet) == 0 || !valid_color)// Tests if client used sm_roulette correctly 
-	{
-		// Resulting message
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ...  "Usage: sm_roulette <bet> <color> (sm_rou may also be used)"); 
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Bet is the amount of credits you would like to bet"); 
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "Color is the color you would like to bet on; either red, black, or green.");
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN ... "A correct bet on red or black will give you back your credits and then some; green will give you several times your bet!");
-		return Plugin_Handled;
-	}
-	
-	if (HasBet[client]) // Tests if client already bet during round
-	{
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You can only bet once in a round!");
-		return Plugin_Handled;
-	}
-	
-	if(StringToInt(player_bet) < 0)// Makes sure client bets a positive amount of credits
-	{
-		ReplyToCommand(client, XG_PREFIX_CHAT_WARN..."You must bet a positive amount of credits!");
-		return Plugin_Handled;
-	}
-	
-	bool isChat = false;//Checks if command originated from chat or console in order to print response in correct place
-	if (CommandSource == SM_REPLY_TO_CHAT)//Response will be printed in console as well in most cases  
-	{									 //so client doesn't have to scroll up in chat
-		isChat = true;
-	}
-	
-	DataPack data = new DataPack();
-	data.WriteCell(client);
-	data.WriteCell(StringToInt(player_bet));
-	data.WriteCell(isChat);
-	data.WriteString(bet_color);
-	data.Reset();
-	Store_GetCredits(GetSteamAccountID(client), GetCreditsCallback, data);
-	
 	return Plugin_Handled;
+	
 }
 
 char Get_Roulette_Color() // Simulates roulette table, randomly chooses a color (red, green, or black) - 5% house edge
 {
-	
 	int roulette_number = GetRandomInt(1, 100); // Random number 1-100, inclusive
 	char color[6];
 	
@@ -130,8 +140,8 @@ char Get_Roulette_Color() // Simulates roulette table, randomly chooses a color 
 
 int Calculate_Winnings(int bet, char color[6])// Calculates winnings on correct guess
 {
-	float green_multiplier = (1 + g_cvar_Profit_Percent.FloatValue) / (GREEN_WEIGHT / getTotalWeight()); // Math to calculate winnings based on PROFIT_PERCENT
-	float red_black_multiplier = (1 + g_cvar_Profit_Percent.FloatValue) / (RED_BLACK_WEIGHT / getTotalWeight());
+	float green_multiplier = (1 + cvar_Profit_Percent.FloatValue) / (GREEN_WEIGHT / getTotalWeight()); // Math to calculate winnings based on PROFIT_PERCENT
+	float red_black_multiplier = (1 + cvar_Profit_Percent.FloatValue) / (RED_BLACK_WEIGHT / getTotalWeight());
 	float winnings;
 	if(StrEqual(color, "green", false))
 	{
@@ -193,7 +203,10 @@ public void Check_Win(char color[6], int bet, int client, bool isChat)
 		}
 		
 		Store_GiveCredits(GetSteamAccountID(client), winnings, GiveCreditsCallback, isChat);// Gives client their credits
-		HasBet[client] = true;// Client has bet this round and may not bet again until next round
+		CanBet[client] = false; // Client just bet and may not bet for another 2 minutes
+		CurrentlyBetting[client] = false; //Client is done betting
+		BetTimer = CreateTimer(cvar_Bet_Interval.FloatValue, ChangeBetStatus, client); // Starts timer until client can bet again
+		GameTimeCanBet[client] = GetGameTime() + cvar_Bet_Interval.FloatValue; //Stores the time at which the player will be able to bet again
 	}
 	else // Incorrect bet
 	{
@@ -206,7 +219,10 @@ public void Check_Win(char color[6], int bet, int client, bool isChat)
 			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."House wins! Better luck next time.");
 			
 			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);
-			HasBet[client] = true;			
+			CanBet[client] = false;
+			CurrentlyBetting[client] = false;
+			BetTimer = CreateTimer(cvar_Bet_Interval.FloatValue, ChangeBetStatus, client);
+			GameTimeCanBet[client] = GetGameTime() + cvar_Bet_Interval.FloatValue;
 		}
 		else
 		{
@@ -217,7 +233,10 @@ public void Check_Win(char color[6], int bet, int client, bool isChat)
 			PrintToConsole(client, XG_PREFIX_CHAT_ALERT..."Color was %s! Better luck next time.", house_color);
 			
 			Store_GiveCredits(GetSteamAccountID(client), -bet, GiveCreditsCallback, isChat);
-			HasBet[client] = true;
+			CanBet[client] = false;
+			CurrentlyBetting[client] = false;
+			BetTimer = CreateTimer(cvar_Bet_Interval.FloatValue, ChangeBetStatus, client);
+			GameTimeCanBet[client] = GetGameTime() + cvar_Bet_Interval.FloatValue;
 		}
 	}
 }
@@ -256,6 +275,15 @@ int AccountIDToIndex(int accountid) // Steam32 ID to servier client index
         }
     }
     return -1;
+}
+
+Action ChangeBetStatus(Handle timer, int client)
+{
+	CanBet[client] = true;
+	if(BetTimer !=null)
+	{
+	delete BetTimer;
+	}
 }
 
 float getTotalWeight()
